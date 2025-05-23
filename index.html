@@ -1,0 +1,1228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Inventory Flow Optimizer v2</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        h1, h2 {
+            color: #333;
+        }
+        .controls {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+            padding: 15px;
+            background-color: #f8f9fa;
+            border-radius: 5px;
+        }
+        .control-group {
+            display: flex;
+            flex-direction: column;
+        }
+        label {
+            font-weight: bold;
+            margin-bottom: 5px;
+            color: #555;
+        }
+        input, select {
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        button {
+            padding: 10px 20px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            margin-top: 10px;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+            font-size: 14px;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+            min-width: 50px;
+        }
+        th {
+            background-color: #f8f9fa;
+            font-weight: bold;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+        .warning {
+            background-color: #fff3cd;
+            color: #856404;
+            font-weight: bold;
+        }
+        .critical {
+            background-color: #f8d7da;
+            color: #721c24;
+            font-weight: bold;
+        }
+        .good {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        .production-start {
+            color: #ff8c00;
+            font-weight: bold;
+        }
+        .production-complete {
+            color: #28a745;
+            font-weight: bold;
+        }
+        .summary {
+            margin-top: 20px;
+            padding: 15px;
+            background-color: #f8f9fa;
+            border-radius: 5px;
+        }
+        .metric {
+            display: inline-block;
+            margin-right: 20px;
+            padding: 10px;
+            background-color: white;
+            border-radius: 4px;
+            border: 1px solid #ddd;
+        }
+        .chart-container {
+            margin-top: 20px;
+            height: 300px;
+            position: relative;
+        }
+        #dohChart {
+            width: 100%;
+            height: 100%;
+        }
+        .target-zone {
+            background-color: rgba(0, 255, 0, 0.1);
+            position: absolute;
+            width: 100%;
+        }
+        .algorithm-info {
+            margin: 20px 0;
+            padding: 15px;
+            background-color: #e7f3ff;
+            border-radius: 5px;
+            border-left: 4px solid #007bff;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Inventory Flow Optimizer</h1>
+        
+        <div class="controls">
+            <div class="control-group">
+                <label for="startDate">Start Date:</label>
+                <input type="date" id="startDate" value="2025-05-23">
+            </div>
+            <div class="control-group">
+                <label for="endDate">End Date:</label>
+                <input type="date" id="endDate" value="2025-12-31">
+            </div>
+            <div class="control-group">
+                <label for="salesMode">Sales Input Mode:</label>
+                <select id="salesMode" onchange="toggleSalesMode()">
+                    <option value="growth">Growth Rate</option>
+                    <option value="monthly" selected>Monthly Forecast</option>
+                </select>
+            </div>
+            <div class="control-group" id="dailySalesGroup" style="display:none;">
+                <label for="dailySales">Daily Sales Rate:</label>
+                <input type="number" id="dailySales" value="11" min="1">
+            </div>
+            <div class="control-group" id="salesGrowthGroup" style="display:none;">
+                <label for="salesGrowth">Monthly Sales Growth %:</label>
+                <input type="number" id="salesGrowth" value="10" min="0" max="50">
+            </div>
+            <div class="control-group">
+                <label for="productionQty">Min Production Batch:</label>
+                <input type="number" id="productionQty" value="0" min="0" step="100">
+                <small style="color: #666;">0 = dynamic sizing</small>
+            </div>
+            <div class="control-group">
+                <label for="productionTime">Production Time (days):</label>
+                <input type="number" id="productionTime" value="30" min="1">
+            </div>
+            <div class="control-group">
+                <label for="usShipTime">US→FBA Ship Time (days):</label>
+                <input type="number" id="usShipTime" value="7" min="1">
+            </div>
+            <div class="control-group">
+                <label for="cnShipTime">CN→FBA Ship Time (days):</label>
+                <input type="number" id="cnShipTime" value="55" min="1">
+            </div>
+            <div class="control-group">
+                <label for="targetDOH">Target DOH (days):</label>
+                <input type="number" id="targetDOH" value="60" min="30" max="90">
+            </div>
+            <div class="control-group">
+                <label for="dohTolerance">DOH Tolerance (%):</label>
+                <input type="number" id="dohTolerance" value="10" min="5" max="25">
+            </div>
+            <div class="control-group">
+                <label for="shipmentSize">Max Shipment Size:</label>
+                <input type="number" id="shipmentSize" value="1000" min="100" step="100">
+            </div>
+            <div class="control-group">
+                <label for="minShipmentSize">Min Shipment Size:</label>
+                <input type="number" id="minShipmentSize" value="500" min="0" step="100">
+            </div>
+        </div>
+
+        <div id="monthlySalesSection" class="controls" style="margin-top: 20px;">
+            <h3>Monthly Sales Forecast</h3>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px;">
+                <div class="control-group">
+                    <label for="month1Sales">Month 1:</label>
+                    <input type="number" id="month1Sales" value="350" min="0">
+                </div>
+                <div class="control-group">
+                    <label for="month2Sales">Month 2:</label>
+                    <input type="number" id="month2Sales" value="380" min="0">
+                </div>
+                <div class="control-group">
+                    <label for="month3Sales">Month 3:</label>
+                    <input type="number" id="month3Sales" value="320" min="0">
+                </div>
+                <div class="control-group">
+                    <label for="month4Sales">Month 4:</label>
+                    <input type="number" id="month4Sales" value="390" min="0">
+                </div>
+                <div class="control-group">
+                    <label for="month5Sales">Month 5:</label>
+                    <input type="number" id="month5Sales" value="340" min="0">
+                </div>
+                <div class="control-group">
+                    <label for="month6Sales">Month 6:</label>
+                    <input type="number" id="month6Sales" value="370" min="0">
+                </div>
+                <div class="control-group">
+                    <label for="month7Sales">Month 7:</label>
+                    <input type="number" id="month7Sales" value="310" min="0">
+                </div>
+                <div class="control-group">
+                    <label for="month8Sales">Month 8:</label>
+                    <input type="number" id="month8Sales" value="360" min="0">
+                </div>
+                <div class="control-group">
+                    <label for="month9Sales">Month 9:</label>
+                    <input type="number" id="month9Sales" value="330" min="0">
+                </div>
+                <div class="control-group">
+                    <label for="month10Sales">Month 10:</label>
+                    <input type="number" id="month10Sales" value="385" min="0">
+                </div>
+                <div class="control-group">
+                    <label for="month11Sales">Month 11:</label>
+                    <input type="number" id="month11Sales" value="355" min="0">
+                </div>
+                <div class="control-group">
+                    <label for="month12Sales">Month 12:</label>
+                    <input type="number" id="month12Sales" value="325" min="0">
+                </div>
+            </div>
+        </div>
+
+        <h2>Initial Inventory</h2>
+        <div class="controls">
+            <div class="control-group">
+                <label for="initFBA">FBA Inventory:</label>
+                <input type="number" id="initFBA" value="1000" min="0">
+            </div>
+            <div class="control-group">
+                <label for="initUS3PL">US 3PL Inventory:</label>
+                <input type="number" id="initUS3PL" value="250" min="0">
+            </div>
+            <div class="control-group">
+                <label for="initCN3PL">CN 3PL Inventory:</label>
+                <input type="number" id="initCN3PL" value="400" min="0">
+            </div>
+            <div class="control-group">
+                <label for="initInTransit">In Transit:</label>
+                <input type="number" id="initInTransit" value="400" min="0">
+            </div>
+            <div class="control-group">
+                <label for="inTransitArrivalDate">In Transit Arrival Date:</label>
+                <input type="date" id="inTransitArrivalDate">
+                <small style="color: #666;">Leave empty if nothing in transit</small>
+            </div>
+            <div class="control-group">
+                <label for="initWIP">WIP (Factory):</label>
+                <input type="number" id="initWIP" value="1200" min="0">
+            </div>
+            <div class="control-group">
+                <label for="wipCompletionDate">WIP Completion Date:</label>
+                <input type="date" id="wipCompletionDate">
+                <small style="color: #666;">Leave empty if no WIP in progress</small>
+            </div>
+        </div>
+
+        <button onclick="runSimulation()">Run Simulation</button>
+
+        <div id="summary" class="summary" style="display:none;">
+            <h2>Summary Metrics</h2>
+            <div id="metrics"></div>
+        </div>
+
+        <div class="chart-container" id="chartContainer" style="display:none;">
+            <canvas id="dohChart"></canvas>
+        </div>
+
+        <div id="swimlaneContainer" style="display:none; margin-top: 30px;">
+            <h2>Supply Chain Inventory Flow</h2>
+            <div class="controls" style="margin-bottom: 20px;">
+                <div class="control-group" style="width: 100%;">
+                    <label for="dateSlider">Select Date: <span id="selectedDate"></span></label>
+                    <input type="range" id="dateSlider" min="0" max="100" value="0" style="width: 100%;" oninput="updateSwimlane()">
+                </div>
+            </div>
+            <div id="swimlaneDiagram" style="display: flex; justify-content: space-between; align-items: center; padding: 20px; background: #f8f9fa; border-radius: 8px;">
+                <div class="stage-box" style="flex: 1; text-align: center; padding: 20px; margin: 5px; background: #fff; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                    <h3 style="color: #ff8c00;">WIP (Factory)</h3>
+                    <div class="stage-qty" id="wipQty" style="font-size: 36px; font-weight: bold; color: #ff8c00;">0</div>
+                    <div style="font-size: 14px; color: #666;">units</div>
+                </div>
+                <div style="font-size: 24px; color: #999;">→</div>
+                <div class="stage-box" style="flex: 1; text-align: center; padding: 20px; margin: 5px; background: #fff; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                    <h3 style="color: #ffc107;">CN 3PL</h3>
+                    <div class="stage-qty" id="cn3plQty" style="font-size: 36px; font-weight: bold; color: #ffc107;">0</div>
+                    <div style="font-size: 14px; color: #666;">units</div>
+                </div>
+                <div style="font-size: 24px; color: #999;">→</div>
+                <div class="stage-box" style="flex: 1; text-align: center; padding: 20px; margin: 5px; background: #fff; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                    <h3 style="color: #007bff;">US 3PL</h3>
+                    <div class="stage-qty" id="us3plQty" style="font-size: 36px; font-weight: bold; color: #007bff;">0</div>
+                    <div style="font-size: 14px; color: #666;">units</div>
+                </div>
+                <div style="font-size: 24px; color: #999;">→</div>
+                <div class="stage-box" style="flex: 1; text-align: center; padding: 20px; margin: 5px; background: #fff; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                    <h3 style="color: #9966ff;">In Transit</h3>
+                    <div class="stage-qty" id="inTransitQty" style="font-size: 36px; font-weight: bold; color: #9966ff;">0</div>
+                    <div style="font-size: 14px; color: #666;">units</div>
+                </div>
+                <div style="font-size: 24px; color: #999;">→</div>
+                <div class="stage-box" style="flex: 1; text-align: center; padding: 20px; margin: 5px; background: #fff; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                    <h3 style="color: #28a745;">FBA</h3>
+                    <div class="stage-qty" id="fbaQty" style="font-size: 36px; font-weight: bold; color: #28a745;">0</div>
+                    <div style="font-size: 14px; color: #666;">units</div>
+                    <div style="margin-top: 10px; font-size: 18px; font-weight: bold;" id="dohDisplay">0 DOH</div>
+                </div>
+            </div>
+            <div style="margin-top: 20px; padding: 15px; background: #e7f3ff; border-radius: 5px;">
+                <strong>Recent Events:</strong>
+                <div id="recentEvents" style="margin-top: 10px;"></div>
+            </div>
+        </div>
+
+        <div id="results"></div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
+    <script>
+        let chartInstance = null;
+        let swimlaneChartInstance = null;
+        let globalEvents = [];
+        let dailySnapshots = [];
+
+        function toggleSalesMode() {
+            const mode = document.getElementById('salesMode').value;
+            document.getElementById('dailySalesGroup').style.display = mode === 'growth' ? 'block' : 'none';
+            document.getElementById('salesGrowthGroup').style.display = mode === 'growth' ? 'block' : 'none';
+            document.getElementById('monthlySalesSection').style.display = mode === 'monthly' ? 'block' : 'none';
+        }
+
+        function predictFutureSales(currentSales, growthRate, days, params, currentDate) {
+            if (params && params.salesMode === 'monthly') {
+                // For monthly mode, calculate average sales over the period
+                let totalSales = 0;
+                let daysCount = 0;
+                const tempDate = new Date(currentDate);
+                
+                for (let d = 0; d < days; d++) {
+                    tempDate.setDate(tempDate.getDate() + 1);
+                    const monthsDiff = (tempDate.getFullYear() - params.startDate.getFullYear()) * 12 + 
+                                     (tempDate.getMonth() - params.startDate.getMonth());
+                    if (monthsDiff >= 0 && monthsDiff < params.monthlySales.length) {
+                        totalSales += params.monthlySales[monthsDiff] / 30;
+                        daysCount++;
+                    }
+                }
+                
+                return daysCount > 0 ? Math.round(totalSales / daysCount) : currentSales;
+            } else {
+                // Original growth rate logic
+                const monthsAhead = days / 30;
+                return Math.round(currentSales * Math.pow(1 + growthRate, monthsAhead));
+            }
+        }
+
+        function calculateOptimalShipmentTiming(inventory, params, currentDate, currentSales) {
+            // Calculate when we need to ship to maintain target DOH
+            const targetDOH = params.targetDOH;
+            const tolerance = params.dohTolerance / 100;
+            const minDOH = targetDOH * (1 - tolerance);
+            const maxDOH = targetDOH * (1 + tolerance);
+            
+            // Project inventory needs for the lead time period
+            const cnLeadTime = params.cnShipTime;
+            const usLeadTime = params.usShipTime;
+            
+            // Calculate future sales during lead time
+            const futureSalesCN = predictFutureSales(currentSales, params.salesGrowth, cnLeadTime, params, currentDate);
+            const futureSalesUS = predictFutureSales(currentSales, params.salesGrowth, usLeadTime, params, currentDate);
+            
+            // Calculate total sales during lead time
+            const salesDuringCNTransit = futureSalesCN * cnLeadTime;
+            const salesDuringUSTransit = futureSalesUS * usLeadTime;
+            
+            // Current pipeline inventory
+            const currentPipeline = inventory.FBA + inventory.InTransit;
+            
+            // Calculate when current inventory will drop to minimum DOH
+            const daysUntilMinDOH = currentSales > 0 ? (currentPipeline - minDOH * currentSales) / currentSales : 0;
+            
+            // Determine if we need to ship
+            const decisions = {
+                shipFromUS: false,
+                shipFromCN: false,
+                usShipQty: 0,
+                cnShipQty: 0
+            };
+            
+            // PRIORITY 1: Always use US inventory first if available
+            if (inventory.US3PL > 0) {
+                const currentDOH = currentSales > 0 ? currentPipeline / currentSales : 0;
+                
+                // More aggressive: Ship from US if we're anywhere near target DOH
+                // This ensures US inventory gets used before CN
+                if (currentDOH < targetDOH * 2) { // Ship if below 120 DOH (2x target)
+                    // Calculate what we need to maintain target DOH after lead time
+                    const salesDuringLeadTime = currentSales * usLeadTime;
+                    const inventoryAfterLeadTime = currentPipeline - salesDuringLeadTime;
+                    const targetInventory = targetDOH * currentSales;
+                    
+                    let shipQty = 0;
+                    
+                    // If we'll be below target after lead time, ship to get back to target
+                    if (inventoryAfterLeadTime < targetInventory) {
+                        shipQty = Math.min(inventory.US3PL, targetInventory - inventoryAfterLeadTime);
+                    } else if (inventory.US3PL > 0) {
+                        // Even if we don't strictly need it, use US inventory proactively
+                        // Ship all US inventory or minimum shipment size, whichever is smaller
+                        shipQty = inventory.US3PL;
+                    }
+                    
+                    // Ship if we have a meaningful quantity
+                    // For US, allow shipping below minimum if it's all we have
+                    if (shipQty > 0 && (shipQty >= params.minShipmentSize || shipQty === inventory.US3PL)) {
+                        decisions.shipFromUS = true;
+                        decisions.usShipQty = shipQty;
+                    }
+                }
+            }
+            
+            // Then check for longer-term needs (use CN for planned replenishment)
+            // Only ship from CN if we don't have enough coming from US
+            const projectedWithUS = currentPipeline + decisions.usShipQty;
+            
+            // PRIORITY 2: Only use CN if really needed after US shipment
+            const daysOfCoverageWithUS = currentSales > 0 ? projectedWithUS / currentSales : 999;
+            
+            // Only ship from CN if we're still below target after US shipment
+            if (daysOfCoverageWithUS < targetDOH && inventory.CN3PL > 0) {
+                // Calculate what inventory we need AFTER the shipment arrives
+                const arrivalDate = new Date(currentDate.getTime() + cnLeadTime * 24 * 60 * 60 * 1000);
+                const futureDailySales = predictFutureSales(currentSales, params.salesGrowth, cnLeadTime, params, currentDate);
+                
+                // We want to have targetDOH days of inventory when the shipment arrives
+                const targetInventoryAtArrival = targetDOH * futureDailySales;
+                
+                // Calculate what we'll have when shipment arrives (including US shipment)
+                const projectedInventory = projectedWithUS - salesDuringCNTransit;
+                
+                // How much do we need to ship to reach target?
+                const needed = targetInventoryAtArrival - projectedInventory;
+                
+                if (needed > 0 && inventory.CN3PL > 0) {
+                    // Ship enough to reach target DOH at arrival, not just minimum
+                    const shipQty = Math.min(
+                        inventory.CN3PL,
+                        Math.ceil(needed * 1.1) // Add 10% buffer
+                    );
+                    
+                    // Only ship if we meet minimum shipment size
+                    if (shipQty >= params.minShipmentSize) {
+                        decisions.shipFromCN = true;
+                        decisions.cnShipQty = shipQty;
+                    }
+                }
+            }
+            
+            return decisions;
+        }
+
+        function calculateProductionNeeds(inventory, params, currentSales, productionInProgress, currentDate) {
+            // Calculate future CN 3PL needs
+            const cnLeadTime = params.cnShipTime;
+            const productionLeadTime = params.productionTime;
+            const totalLeadTime = cnLeadTime + productionLeadTime;
+            
+            // Calculate total pipeline inventory
+            const totalPipeline = inventory.FBA + inventory.InTransit + inventory.US3PL + inventory.CN3PL;
+            
+            // Calculate when we'll drop below target DOH
+            const targetInventory = params.targetDOH * currentSales;
+            const daysUntilBelowTarget = (totalPipeline - targetInventory) / currentSales;
+            
+            // Should we start production?
+            if (daysUntilBelowTarget <= totalLeadTime + 30) { // 30 days buffer
+                // Calculate sales during the total lead time
+                let totalSalesDuringLeadTime = 0;
+                const tempDate = new Date(currentDate);
+                
+                for (let d = 0; d < totalLeadTime; d++) {
+                    tempDate.setDate(tempDate.getDate() + 1);
+                    const monthsDiff = (tempDate.getFullYear() - params.startDate.getFullYear()) * 12 + 
+                                     (tempDate.getMonth() - params.startDate.getMonth());
+                    if (params.salesMode === 'monthly' && monthsDiff >= 0 && monthsDiff < params.monthlySales.length) {
+                        totalSalesDuringLeadTime += params.monthlySales[monthsDiff] / 30;
+                    } else {
+                        totalSalesDuringLeadTime += currentSales * Math.pow(1 + params.salesGrowth, d / 30);
+                    }
+                }
+                
+                // Calculate future daily sales rate at production completion
+                const futureDailySales = predictFutureSales(currentSales, params.salesGrowth, totalLeadTime, params, currentDate);
+                
+                // Calculate optimal production quantity
+                // We want enough to maintain target DOH for a reasonable period (e.g., 90 days)
+                const coveragePeriod = 90; // days of coverage we want from this production
+                const optimalProductionQty = Math.ceil(futureDailySales * coveragePeriod);
+                
+                // Current + incoming inventory
+                const projectedInventory = totalPipeline + (productionInProgress ? productionInProgress.qty : 0) - totalSalesDuringLeadTime;
+                
+                // How much do we need to produce?
+                const needed = (params.targetDOH * futureDailySales) - projectedInventory;
+                
+                // Apply minimum batch size if specified
+                let finalQty = Math.max(needed, optimalProductionQty);
+                if (params.productionQty > 0) {
+                    finalQty = Math.max(finalQty, params.productionQty);
+                }
+                
+                return {
+                    shouldProduce: needed > 0 && !productionInProgress,
+                    quantity: finalQty
+                };
+            }
+            
+            return { shouldProduce: false, quantity: 0 };
+        }
+
+        function calculateDaysSince(currentDate, lastDate, showOnlyAfterFirst = false) {
+            if (!lastDate) return '-';
+            if (showOnlyAfterFirst && lastDate === null) return '-';
+            const days = Math.round((currentDate - lastDate) / (1000 * 60 * 60 * 24));
+            return days;
+        }
+        
+        function addSalesSummary(events, salesPeriodStart, currentDate, salesPeriodUnits, salesPeriodDays, inventory, currentSales, lastShipmentFromUS, lastShipmentFromCN, hasCNShipmentOccurred) {
+            if (salesPeriodDays > 0) {
+                const avgDailySales = Math.round(salesPeriodUnits / salesPeriodDays);
+                const endDate = new Date(currentDate);
+                endDate.setDate(endDate.getDate() - 1); // Previous day
+                
+                let summaryText = '';
+                if (salesPeriodDays === 1) {
+                    summaryText = `Sales Summary: ${salesPeriodUnits} units`;
+                } else {
+                    summaryText = `Sales Summary: ${salesPeriodUnits} units over ${salesPeriodDays} days (avg ${avgDailySales}/day)`;
+                }
+                
+                events.push({
+                    date: endDate,
+                    event: summaryText,
+                    from: '-',
+                    to: '-',
+                    qty: salesPeriodUnits,
+                    inventory: {...inventory},
+                    dailySales: currentSales,
+                    doh: currentSales > 0 ? Math.round(inventory.FBA / currentSales) : 0,
+                    daysSinceUS: calculateDaysSince(currentDate, lastShipmentFromUS),
+                    daysSinceCN: hasCNShipmentOccurred ? calculateDaysSince(currentDate, lastShipmentFromCN) : '-'
+                });
+            }
+        }
+
+        function runSimulation() {
+            const salesMode = document.getElementById('salesMode').value;
+            const monthlySales = [];
+            
+            if (salesMode === 'monthly') {
+                for (let i = 1; i <= 12; i++) {
+                    monthlySales.push(parseInt(document.getElementById(`month${i}Sales`).value) || 0);
+                }
+            }
+            
+            const params = {
+                startDate: new Date(document.getElementById('startDate').value),
+                endDate: new Date(document.getElementById('endDate').value),
+                salesMode: salesMode,
+                dailySales: parseInt(document.getElementById('dailySales').value),
+                salesGrowth: parseFloat(document.getElementById('salesGrowth').value) / 100,
+                monthlySales: monthlySales,
+                productionQty: parseInt(document.getElementById('productionQty').value),
+                productionTime: parseInt(document.getElementById('productionTime').value),
+                usShipTime: parseInt(document.getElementById('usShipTime').value),
+                cnShipTime: parseInt(document.getElementById('cnShipTime').value),
+                targetDOH: parseInt(document.getElementById('targetDOH').value),
+                dohTolerance: parseInt(document.getElementById('dohTolerance').value),
+                shipmentSize: parseInt(document.getElementById('shipmentSize').value),
+                minShipmentSize: parseInt(document.getElementById('minShipmentSize').value),
+                inventory: {
+                    FBA: parseInt(document.getElementById('initFBA').value),
+                    US3PL: parseInt(document.getElementById('initUS3PL').value),
+                    CN3PL: parseInt(document.getElementById('initCN3PL').value),
+                    InTransit: parseInt(document.getElementById('initInTransit').value),
+                    WIP: parseInt(document.getElementById('initWIP').value)
+                },
+                wipCompletionDate: document.getElementById('wipCompletionDate').value ? 
+                    new Date(document.getElementById('wipCompletionDate').value) : null,
+                inTransitArrivalDate: document.getElementById('inTransitArrivalDate').value ? 
+                    new Date(document.getElementById('inTransitArrivalDate').value) : null
+            };
+
+            const events = [];
+            const dohHistory = [];
+            dailySnapshots = []; // Reset daily snapshots
+            const inventory = {...params.inventory};
+            let currentDate = new Date(params.startDate);
+            let currentSales = params.dailySales;
+            let totalSales = 0;
+            let daysSimulated = 0;
+            let productionInProgress = null;
+            let shipmentsInTransit = [];
+            let monthCounter = 0;
+            let lastShipmentFromCN = null;
+            let lastShipmentFromUS = null;
+            let hasCNShipmentOccurred = false;
+            let shipmentIdCounter = 1000;
+            let productionIdCounter = 1000;
+
+            // Initialize WIP if there's existing production with completion date
+            if (params.inventory.WIP > 0 && params.wipCompletionDate && params.wipCompletionDate > currentDate) {
+                const daysRemaining = Math.ceil((params.wipCompletionDate - currentDate) / (24 * 60 * 60 * 1000));
+                const productionId = ++productionIdCounter;
+                productionInProgress = {
+                    startDate: new Date(params.wipCompletionDate.getTime() - params.productionTime * 24 * 60 * 60 * 1000),
+                    endDate: params.wipCompletionDate,
+                    qty: params.inventory.WIP,
+                    productionId: productionId
+                };
+            }
+            
+            // Initialize in-transit shipment if there's inventory with arrival date
+            if (params.inventory.InTransit > 0 && params.inTransitArrivalDate) {
+                if (params.inTransitArrivalDate >= currentDate) {
+                    // Future arrival - add to shipments in transit
+                    shipmentsInTransit.push({
+                        from: 'Initial Transit',
+                        qty: params.inventory.InTransit,
+                        arrivalDate: params.inTransitArrivalDate
+                    });
+                } else {
+                    // Past arrival date - add directly to FBA and create historical arrival event
+                    const transitQty = params.inventory.InTransit;
+                    inventory.FBA += transitQty;
+                    inventory.InTransit = 0;
+                    events.push({
+                        date: params.inTransitArrivalDate,
+                        event: 'Shipment Arrival (Historical)',
+                        from: 'Initial Transit',
+                        to: 'FBA',
+                        qty: transitQty,
+                        inventory: {...inventory},
+                        dailySales: currentSales,
+                        doh: currentSales > 0 ? Math.round(inventory.FBA / currentSales) : 0,
+                        daysSinceUS: '-',
+                        daysSinceCN: '-'
+                    });
+                }
+            }
+
+            // Add opening balance event
+            events.push({
+                date: new Date(currentDate),
+                event: 'Opening Balance',
+                from: '',
+                to: '',
+                qty: 0,
+                inventory: {...inventory},
+                dailySales: currentSales,
+                doh: currentSales > 0 ? Math.round(inventory.FBA / currentSales) : 0,
+                daysSinceUS: '-',
+                daysSinceCN: '-'
+            });
+
+            // Track sales summaries between events
+            let salesPeriodStart = new Date(currentDate);
+            let salesPeriodUnits = 0;
+            let salesPeriodDays = 0;
+
+            while (currentDate <= params.endDate) {
+                // Update sales rate based on mode
+                if (params.salesMode === 'monthly') {
+                    // Calculate which month we're in
+                    const monthsDiff = (currentDate.getFullYear() - params.startDate.getFullYear()) * 12 + 
+                                     (currentDate.getMonth() - params.startDate.getMonth());
+                    if (monthsDiff >= 0 && monthsDiff < params.monthlySales.length) {
+                        currentSales = Math.round(params.monthlySales[monthsDiff] / 30); // Convert monthly to daily
+                    }
+                } else {
+                    // Original growth rate logic
+                    if (daysSimulated % 30 === 0 && daysSimulated > 0) {
+                        monthCounter++;
+                        currentSales = Math.round(params.dailySales * Math.pow(1 + params.salesGrowth, monthCounter));
+                    }
+                }
+
+                // Process daily sales
+                let todaySales = 0;
+                if (inventory.FBA >= currentSales) {
+                    inventory.FBA -= currentSales;
+                    totalSales += currentSales;
+                    todaySales = currentSales;
+                } else {
+                    todaySales = inventory.FBA;
+                    totalSales += inventory.FBA;
+                    inventory.FBA = 0;
+                }
+                
+                // Track sales for summary
+                if (todaySales > 0) {
+                    salesPeriodUnits += todaySales;
+                    salesPeriodDays++;
+                }
+
+                // Check production completion
+                if (productionInProgress && currentDate >= productionInProgress.endDate) {
+                    // Add sales summary before this event
+                    addSalesSummary(events, salesPeriodStart, currentDate, salesPeriodUnits, salesPeriodDays, inventory, currentSales, lastShipmentFromUS, lastShipmentFromCN, hasCNShipmentOccurred);
+                    salesPeriodUnits = 0;
+                    salesPeriodDays = 0;
+                    salesPeriodStart = new Date(currentDate);
+                    
+                    inventory.WIP -= productionInProgress.qty;
+                    inventory.CN3PL += productionInProgress.qty;
+                    events.push({
+                        date: new Date(currentDate),
+                        event: 'PO-' + productionInProgress.productionId + ' Production Complete',
+                        from: '-',
+                        to: '-',
+                        qty: productionInProgress.qty,
+                        inventory: {...inventory},
+                        dailySales: currentSales,
+                        doh: currentSales > 0 ? Math.round(inventory.FBA / currentSales) : 0,
+                        daysSinceUS: calculateDaysSince(currentDate, lastShipmentFromUS),
+                        daysSinceCN: hasCNShipmentOccurred ? calculateDaysSince(currentDate, lastShipmentFromCN) : '-'
+                    });
+                    productionInProgress = null;
+                }
+
+                // Check shipment arrivals
+                shipmentsInTransit = shipmentsInTransit.filter(shipment => {
+                    if (currentDate >= shipment.arrivalDate) {
+                        // Add sales summary before this event
+                        addSalesSummary(events, salesPeriodStart, currentDate, salesPeriodUnits, salesPeriodDays, inventory, currentSales, lastShipmentFromUS, lastShipmentFromCN, hasCNShipmentOccurred);
+                        salesPeriodUnits = 0;
+                        salesPeriodDays = 0;
+                        salesPeriodStart = new Date(currentDate);
+                        
+                        inventory.InTransit -= shipment.qty;
+                        inventory.FBA += shipment.qty;
+                        events.push({
+                            date: new Date(currentDate),
+                            event: (shipment.shipmentId || '') + ' Shipment Arrival',
+                            from: shipment.from,
+                            to: 'FBA',
+                            qty: shipment.qty,
+                            inventory: {...inventory},
+                            dailySales: currentSales,
+                            doh: currentSales > 0 ? Math.round(inventory.FBA / currentSales) : 0,
+                            daysSinceUS: calculateDaysSince(currentDate, lastShipmentFromUS),
+                            daysSinceCN: hasCNShipmentOccurred ? calculateDaysSince(currentDate, lastShipmentFromCN) : '-'
+                        });
+                        return false;
+                    }
+                    return true;
+                });
+
+                // Calculate current DOH
+                const currentDOH = currentSales > 0 ? inventory.FBA / currentSales : 0;
+                dohHistory.push({
+                    date: new Date(currentDate),
+                    doh: currentDOH
+                });
+
+                // Make shipping decisions using improved algorithm
+                const shipDecisions = calculateOptimalShipmentTiming(inventory, params, currentDate, currentSales);
+                
+                // Execute US shipment if needed
+                if (shipDecisions.shipFromUS && shipDecisions.usShipQty > 0) {
+                    const daysSinceLastUS = lastShipmentFromUS ? 
+                        (currentDate - lastShipmentFromUS) / (1000 * 60 * 60 * 24) : 999;
+                    
+                    if (daysSinceLastUS > 3) { // Don't ship more than once every 3 days
+                        // Add sales summary before this event
+                        addSalesSummary(events, salesPeriodStart, currentDate, salesPeriodUnits, salesPeriodDays, inventory, currentSales, lastShipmentFromUS, lastShipmentFromCN, hasCNShipmentOccurred);
+                        salesPeriodUnits = 0;
+                        salesPeriodDays = 0;
+                        salesPeriodStart = new Date(currentDate);
+                        
+                        inventory.US3PL -= shipDecisions.usShipQty;
+                        inventory.InTransit += shipDecisions.usShipQty;
+                        const arrivalDate = new Date(currentDate.getTime() + params.usShipTime * 24 * 60 * 60 * 1000);
+                        const shipmentId = ++shipmentIdCounter;
+                        
+                        events.push({
+                            date: new Date(currentDate),
+                            event: shipmentId + ' US Shipment Start',
+                            from: 'US 3PL',
+                            to: 'FBA',
+                            qty: shipDecisions.usShipQty,
+                            inventory: {...inventory},
+                            dailySales: currentSales,
+                            doh: currentSales > 0 ? Math.round(inventory.FBA / currentSales) : 0,
+                            daysSinceUS: 0,  // This is a US shipment, so days since is 0
+                            daysSinceCN: hasCNShipmentOccurred ? calculateDaysSince(currentDate, lastShipmentFromCN) : '-'
+                        });
+                        
+                        shipmentsInTransit.push({
+                            from: 'US 3PL',
+                            qty: shipDecisions.usShipQty,
+                            arrivalDate: arrivalDate,
+                            shipmentId: shipmentId
+                        });
+                        
+                        lastShipmentFromUS = new Date(currentDate);
+                    }
+                }
+                
+                // Execute CN shipment if needed
+                if (shipDecisions.shipFromCN && shipDecisions.cnShipQty > 0) {
+                    const daysSinceLastCN = lastShipmentFromCN ? 
+                        (currentDate - lastShipmentFromCN) / (1000 * 60 * 60 * 24) : 999;
+                    
+                    if (daysSinceLastCN > 7) { // Don't ship more than once every 7 days from CN
+                        // Add sales summary before this event
+                        addSalesSummary(events, salesPeriodStart, currentDate, salesPeriodUnits, salesPeriodDays, inventory, currentSales, lastShipmentFromUS, lastShipmentFromCN, hasCNShipmentOccurred);
+                        salesPeriodUnits = 0;
+                        salesPeriodDays = 0;
+                        salesPeriodStart = new Date(currentDate);
+                        
+                        inventory.CN3PL -= shipDecisions.cnShipQty;
+                        inventory.InTransit += shipDecisions.cnShipQty;
+                        const arrivalDate = new Date(currentDate.getTime() + params.cnShipTime * 24 * 60 * 60 * 1000);
+                        const shipmentId = ++shipmentIdCounter;
+                        
+                        events.push({
+                            date: new Date(currentDate),
+                            event: shipmentId + ' CN Shipment Start',
+                            from: 'CN 3PL',
+                            to: 'FBA',
+                            qty: shipDecisions.cnShipQty,
+                            inventory: {...inventory},
+                            dailySales: currentSales,
+                            doh: currentSales > 0 ? Math.round(inventory.FBA / currentSales) : 0,
+                            daysSinceUS: calculateDaysSince(currentDate, lastShipmentFromUS),
+                            daysSinceCN: hasCNShipmentOccurred ? calculateDaysSince(currentDate, lastShipmentFromCN) : '-'  // Show days since last CN shipment
+                        });
+                        
+                        shipmentsInTransit.push({
+                            from: 'CN 3PL',
+                            qty: shipDecisions.cnShipQty,
+                            arrivalDate: arrivalDate,
+                            shipmentId: shipmentId
+                        });
+                        
+                        hasCNShipmentOccurred = true;
+                        lastShipmentFromCN = new Date(currentDate);
+                    }
+                }
+
+                // Production decision
+                const productionDecision = calculateProductionNeeds(inventory, params, currentSales, productionInProgress, currentDate);
+                if (productionDecision.shouldProduce) {
+                    // Add sales summary before this event
+                    addSalesSummary(events, salesPeriodStart, currentDate, salesPeriodUnits, salesPeriodDays, inventory, currentSales, lastShipmentFromUS, lastShipmentFromCN, hasCNShipmentOccurred);
+                    salesPeriodUnits = 0;
+                    salesPeriodDays = 0;
+                    salesPeriodStart = new Date(currentDate);
+                    
+                    const productionQty = Math.round(productionDecision.quantity);
+                    const productionId = ++productionIdCounter;
+                    productionInProgress = {
+                        startDate: new Date(currentDate),
+                        endDate: new Date(currentDate.getTime() + params.productionTime * 24 * 60 * 60 * 1000),
+                        qty: productionQty,
+                        productionId: productionId
+                    };
+                    inventory.WIP += productionQty;
+                    events.push({
+                        date: new Date(currentDate),
+                        event: 'PO-' + productionId + ' Production Start',
+                        from: '-',
+                        to: '-',
+                        qty: productionQty,
+                        inventory: {...inventory},
+                        dailySales: currentSales,
+                        doh: currentSales > 0 ? Math.round(inventory.FBA / currentSales) : 0,
+                        daysSinceUS: calculateDaysSince(currentDate, lastShipmentFromUS),
+                        daysSinceCN: hasCNShipmentOccurred ? calculateDaysSince(currentDate, lastShipmentFromCN) : '-'
+                    });
+                }
+
+                // Capture daily snapshot at end of each day
+                dailySnapshots.push({
+                    date: new Date(currentDate),
+                    inventory: {...inventory},
+                    dailySales: currentSales,
+                    doh: currentSales > 0 ? Math.round(inventory.FBA / currentSales) : 0,
+                    daysSinceUS: calculateDaysSince(currentDate, lastShipmentFromUS),
+                    daysSinceCN: hasCNShipmentOccurred ? calculateDaysSince(currentDate, lastShipmentFromCN) : '-',
+                    events: [] // Will be populated with events from this day
+                });
+
+                currentDate.setDate(currentDate.getDate() + 1);
+                daysSimulated++;
+            }
+
+            // Add final sales summary if any
+            addSalesSummary(events, salesPeriodStart, params.endDate, salesPeriodUnits, salesPeriodDays, inventory, currentSales, lastShipmentFromUS, lastShipmentFromCN, hasCNShipmentOccurred);
+            
+            // Add closing balance
+            events.push({
+                date: new Date(params.endDate),
+                event: 'Closing Balance',
+                from: '',
+                to: '',
+                qty: 0,
+                inventory: {...inventory},
+                dailySales: currentSales,
+                doh: currentSales > 0 ? Math.round(inventory.FBA / currentSales) : 0,
+                daysSinceUS: calculateDaysSince(params.endDate, lastShipmentFromUS),
+                daysSinceCN: hasCNShipmentOccurred ? calculateDaysSince(params.endDate, lastShipmentFromCN) : '-'
+            });
+
+            // Display results
+            displayResults(events, params);
+            displaySummary(events, totalSales, daysSimulated, params);
+            displayDOHChart(dohHistory, params);
+            displaySwimlaneChart(events);
+        }
+
+        function displayResults(events, params) {
+            const tolerance = params.dohTolerance / 100;
+            const minDOH = params.targetDOH * (1 - tolerance);
+            const maxDOH = params.targetDOH * (1 + tolerance);
+            
+            let html = '<h2>Event Log (' + events.length + ' events)</h2>';
+            html += '<table>';
+            html += '<tr><th>Date</th><th>Event</th><th>From</th><th>To</th><th>Qty</th><th>Daily Sales</th><th>FBA</th><th>US 3PL</th><th>CN 3PL</th><th>In Transit</th><th>WIP</th><th>DOH</th><th>Status</th><th>Days Since<br>Last US Ship</th><th>Days Since<br>Last CN Ship</th></tr>';
+            
+            events.forEach(event => {
+                let dohClass = 'good';
+                let status = '';
+                
+                // Calculate difference from target DOH
+                const difference = event.doh - params.targetDOH;
+                
+                if (event.doh < minDOH) {
+                    dohClass = 'warning';
+                    status = `${difference}`;
+                } else if (event.doh > maxDOH) {
+                    dohClass = 'critical';
+                    status = `+${difference}`;
+                } else {
+                    status = difference >= 0 ? `+${difference}` : `${difference}`;
+                }
+                
+                const eventClass = event.event.includes('Production') ? 'event-production' :
+                                 event.event.includes('Shipment') ? 'event-shipment' :
+                                 event.event.includes('Arrival') ? 'event-arrival' : '';
+                
+                const eventTextClass = event.event.includes('Production Start') ? 'production-start' :
+                                      event.event.includes('Production Complete') ? 'production-complete' : '';
+                
+                html += `<tr class="${eventClass}">`;
+                html += `<td>${event.date.getDate().toString().padStart(2, '0')}/${(event.date.getMonth() + 1).toString().padStart(2, '0')}/${event.date.getFullYear()}</td>`;
+                html += `<td class="${eventTextClass}">${event.event}</td>`;
+                html += `<td>${event.from}</td>`;
+                html += `<td>${event.to}</td>`;
+                html += `<td>${event.qty}</td>`;
+                html += `<td>${event.dailySales}</td>`;
+                html += `<td>${event.inventory.FBA}</td>`;
+                html += `<td>${event.inventory.US3PL}</td>`;
+                html += `<td>${event.inventory.CN3PL}</td>`;
+                html += `<td>${event.inventory.InTransit}</td>`;
+                html += `<td>${event.inventory.WIP}</td>`;
+                html += `<td class="${dohClass}">${event.doh}</td>`;
+                html += `<td class="${dohClass}">${status}</td>`;
+                html += `<td>${event.daysSinceUS || '-'}</td>`;
+                // Only show days since CN on CN Shipment Start events
+                html += `<td>${event.event.includes('CN Shipment Start') ? event.daysSinceCN : '-'}</td>`;
+                html += '</tr>';
+            });
+            
+            html += '</table>';
+            document.getElementById('results').innerHTML = html;
+        }
+
+        function displaySummary(events, totalSales, daysSimulated, params) {
+            const tolerance = params.dohTolerance / 100;
+            const minDOH = params.targetDOH * (1 - tolerance);
+            const maxDOH = params.targetDOH * (1 + tolerance);
+            
+            const dohValues = events.map(e => e.doh).filter(d => d > 0);
+            const avgDOH = dohValues.length > 0 ? Math.round(dohValues.reduce((a, b) => a + b, 0) / dohValues.length) : 0;
+            const maxDOHValue = dohValues.length > 0 ? Math.max(...dohValues) : 0;
+            const minDOHValue = dohValues.length > 0 ? Math.min(...dohValues) : 0;
+            const stockouts = events.filter(e => e.inventory.FBA === 0).length;
+            
+            // Calculate days within target range
+            const daysInRange = dohValues.filter(d => d >= minDOH && d <= maxDOH).length;
+            const percentInRange = dohValues.length > 0 ? Math.round(daysInRange / dohValues.length * 100) : 0;
+            
+            let html = `
+                <div class="metric">
+                    <strong>Target DOH:</strong> ${params.targetDOH} ± ${params.dohTolerance}% (${minDOH}-${maxDOH})
+                </div>
+                <div class="metric ${percentInRange >= 80 ? 'good' : percentInRange >= 60 ? 'warning' : 'critical'}">
+                    <strong>Days in Target Range:</strong> ${percentInRange}%
+                </div>
+                <div class="metric">
+                    <strong>Average DOH:</strong> ${avgDOH} days
+                </div>
+                <div class="metric">
+                    <strong>DOH Range:</strong> ${minDOHValue} - ${maxDOHValue} days
+                </div>
+                <div class="metric">
+                    <strong>Total Sales:</strong> ${totalSales.toLocaleString()} units
+                </div>
+                <div class="metric ${stockouts > 0 ? 'critical' : 'good'}">
+                    <strong>Stockout Days:</strong> ${stockouts}
+                </div>
+                <div class="metric">
+                    <strong>Shipments:</strong> ${events.filter(e => e.event.includes('Shipment')).length}
+                </div>
+                <div class="metric">
+                    <strong>Production Runs:</strong> ${events.filter(e => e.event === 'Production Start').length}
+                </div>
+            `;
+            
+            document.getElementById('metrics').innerHTML = html;
+            document.getElementById('summary').style.display = 'block';
+        }
+
+        function displayDOHChart(dohHistory, params) {
+            const ctx = document.getElementById('dohChart').getContext('2d');
+            
+            const tolerance = params.dohTolerance / 100;
+            const minDOH = params.targetDOH * (1 - tolerance);
+            const maxDOH = params.targetDOH * (1 + tolerance);
+            
+            // Destroy existing chart if it exists
+            if (chartInstance) {
+                chartInstance.destroy();
+            }
+            
+            chartInstance = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: dohHistory.map(d => {
+                        const date = d.date;
+                        return date.getDate().toString().padStart(2, '0') + '/' + 
+                               (date.getMonth() + 1).toString().padStart(2, '0') + '/' + 
+                               date.getFullYear();
+                    }),
+                    datasets: [{
+                        label: 'Days on Hand',
+                        data: dohHistory.map(d => d.doh),
+                        borderColor: 'rgb(75, 192, 192)',
+                        tension: 0.1
+                    }, {
+                        label: 'Target DOH',
+                        data: Array(dohHistory.length).fill(params.targetDOH),
+                        borderColor: 'rgb(255, 159, 64)',
+                        borderDash: [5, 5]
+                    }, {
+                        label: 'Min DOH',
+                        data: Array(dohHistory.length).fill(minDOH),
+                        borderColor: 'rgb(255, 99, 132)',
+                        borderDash: [2, 2]
+                    }, {
+                        label: 'Max DOH',
+                        data: Array(dohHistory.length).fill(maxDOH),
+                        borderColor: 'rgb(255, 99, 132)',
+                        borderDash: [2, 2]
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        title: {
+                            display: true,
+                            text: 'Days on Hand Over Time'
+                        },
+                        legend: {
+                            display: true
+                        }
+                    },
+                    scales: {
+                        x: {
+                            display: true,
+                            title: {
+                                display: true,
+                                text: 'Date'
+                            },
+                            ticks: {
+                                maxTicksLimit: 10
+                            }
+                        },
+                        y: {
+                            display: true,
+                            title: {
+                                display: true,
+                                text: 'Days'
+                            }
+                        }
+                    }
+                }
+            });
+            
+            document.getElementById('chartContainer').style.display = 'block';
+        }
+
+        function displaySwimlaneChart(events) {
+            globalEvents = events;
+            
+            // Set up the date slider to use events only
+            const slider = document.getElementById('dateSlider');
+            slider.max = events.length - 1;
+            slider.value = 0;
+            
+            // Display initial state
+            updateSwimlane();
+            
+            document.getElementById('swimlaneContainer').style.display = 'block';
+        }
+        
+        function updateSwimlane() {
+            const slider = document.getElementById('dateSlider');
+            const eventIndex = parseInt(slider.value);
+            
+            if (globalEvents.length === 0 || eventIndex >= globalEvents.length) return;
+            
+            const event = globalEvents[eventIndex];
+            
+            // Update date display and event name
+            const dateStr = event.date.getDate().toString().padStart(2, '0') + '/' + 
+                          (event.date.getMonth() + 1).toString().padStart(2, '0') + '/' + 
+                          event.date.getFullYear();
+            document.getElementById('selectedDate').textContent = dateStr + ' - ' + event.event;
+            
+            // Update inventory quantities
+            document.getElementById('wipQty').textContent = event.inventory.WIP.toLocaleString();
+            document.getElementById('cn3plQty').textContent = event.inventory.CN3PL.toLocaleString();
+            document.getElementById('us3plQty').textContent = event.inventory.US3PL.toLocaleString();
+            document.getElementById('inTransitQty').textContent = event.inventory.InTransit.toLocaleString();
+            document.getElementById('fbaQty').textContent = event.inventory.FBA.toLocaleString();
+            document.getElementById('dohDisplay').textContent = event.doh + ' DOH';
+            
+            // Color code DOH
+            const dohElement = document.getElementById('dohDisplay');
+            if (event.doh < 54) { // Below 60 - 10%
+                dohElement.style.color = '#dc3545'; // Red
+            } else if (event.doh > 66) { // Above 60 + 10%
+                dohElement.style.color = '#ffc107'; // Yellow
+            } else {
+                dohElement.style.color = '#28a745'; // Green
+            }
+            
+            // Show recent events near this date
+            let recentEventsHtml = '<ul style="list-style: none; padding: 0; margin: 0;">';
+            
+            // Show previous events (up to 3 before current)
+            const startIdx = Math.max(0, eventIndex - 3);
+            for (let i = startIdx; i <= eventIndex; i++) {
+                const e = globalEvents[i];
+                if (e.event !== 'Opening Balance' && e.event !== 'Closing Balance') {
+                    const eventClass = e.event.includes('Production Start') ? 'production-start' :
+                                     e.event.includes('Production Complete') ? 'production-complete' : '';
+                    const isCurrent = i === eventIndex;
+                    const eventDateStr = e.date.getDate().toString().padStart(2, '0') + '/' + 
+                                       (e.date.getMonth() + 1).toString().padStart(2, '0') + '/' + 
+                                       e.date.getFullYear();
+                    recentEventsHtml += `<li style="padding: 5px 0; ${isCurrent ? 'font-weight: bold;' : 'opacity: 0.7;'}">
+                        ${eventDateStr}: 
+                        <span class="${eventClass}">${e.event}</span>
+                        ${e.qty > 0 ? `(${e.qty.toLocaleString()} units)` : ''}
+                    </li>`;
+                }
+            }
+            
+            if (startIdx === eventIndex && globalEvents[eventIndex].event === 'Opening Balance') {
+                recentEventsHtml += '<li style="padding: 5px 0; opacity: 0.7;">No previous events</li>';
+            }
+            
+            recentEventsHtml += '</ul>';
+            document.getElementById('recentEvents').innerHTML = recentEventsHtml;
+        }
+
+        // Run simulation on load
+        window.onload = function() {
+            toggleSalesMode(); // Initialize the sales mode display
+            
+            // Set WIP completion date to 20 days from today
+            const today = new Date();
+            const defaultDate = new Date(today.getTime() + 20 * 24 * 60 * 60 * 1000);
+            document.getElementById('wipCompletionDate').value = defaultDate.toISOString().split('T')[0];
+            document.getElementById('inTransitArrivalDate').value = defaultDate.toISOString().split('T')[0];
+            
+            runSimulation();
+        };
+    </script>
+</body>
+</html>
